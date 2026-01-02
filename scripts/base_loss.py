@@ -7,6 +7,7 @@ Example run as:
 torchrun --standalone --nproc_per_node=8 -m scripts.base_loss
 """
 import os
+import sys
 from contextlib import nullcontext
 import torch
 from nanochat.checkpoint_manager import load_model
@@ -22,12 +23,15 @@ split_tokens = 20*524288  # number of tokens to evaluate per split
 model_tag = None # optional model tag for the output directory name
 model_step = None # optional model step for the output directory name
 device_type = "" # cuda|cpu|mps (empty => autodetect)
+reverse = False # use reversed tokenizer/data (trained with --reverse)
+if "--reverse" in sys.argv:
+    sys.argv = ["--reverse=True" if arg == "--reverse" else arg for arg in sys.argv]
 exec(open(os.path.join('nanochat', 'configurator.py')).read()) # overrides from command line or config file
 
 # Load the base model and the tokenizer
 device_type = autodetect_device_type() if device_type == "" else device_type
 ddp, ddp_rank, ddp_local_rank, ddp_world_size, device = compute_init(device_type)
-model, tokenizer, meta = load_model("base", device, phase="eval", model_tag=model_tag, step=model_step)
+model, tokenizer, meta = load_model("base", device, phase="eval", model_tag=model_tag, step=model_step, reverse=reverse)
 sequence_len = meta["model_config"]["sequence_len"] # could be arbitrary really
 autocast_ctx = torch.amp.autocast(device_type=device_type, dtype=torch.bfloat16) if device_type == "cuda" else nullcontext()
 
@@ -35,10 +39,10 @@ autocast_ctx = torch.amp.autocast(device_type=device_type, dtype=torch.bfloat16)
 tokens_per_step = device_batch_size * sequence_len * ddp_world_size
 assert split_tokens % tokens_per_step == 0, "split_tokens must be divisible by tokens_per_step"
 steps = split_tokens // tokens_per_step
-token_bytes = get_token_bytes(device=device)
+token_bytes = get_token_bytes(device=device, reverse=reverse)
 bpb_results = {}
 for split_name in ["train", "val"]:
-    loader = tokenizing_distributed_data_loader(device_batch_size, sequence_len, split_name, device=device)
+    loader = tokenizing_distributed_data_loader(device_batch_size, sequence_len, split_name, device=device, reverse=reverse)
     with autocast_ctx:
         bpb = evaluate_bpb(model, loader, steps, token_bytes)
     print0(f"{split_name} bpb: {bpb:.4f}")
@@ -58,10 +62,13 @@ if ddp_rank == 0:
     ]
     engine = Engine(model, tokenizer)
     for prompt in prompts:
-        tokens = tokenizer(prompt, prepend="<|bos|>")
+        prompt_text = prompt[::-1] if reverse else prompt
+        tokens = tokenizer(prompt_text, prepend="<|bos|>")
         with autocast_ctx:
             sample, _ = engine.generate_batch(tokens, num_samples=1, max_tokens=16, temperature=0)
         sample_str = tokenizer.decode(sample[0])
+        if reverse:
+            sample_str = sample_str[::-1]
         print0(sample_str)
         samples.append(sample_str)
 

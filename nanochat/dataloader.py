@@ -7,7 +7,7 @@ from nanochat.common import get_dist_info
 from nanochat.dataset import list_parquet_files
 from nanochat.tokenizer import get_tokenizer
 
-def tokenizing_distributed_data_loader_with_state(B, T, split, tokenizer_threads=4, tokenizer_batch_size=128, device="cuda", resume_state_dict=None):
+def tokenizing_distributed_data_loader_with_state(B, T, split, tokenizer_threads=4, tokenizer_batch_size=128, device="cuda", resume_state_dict=None, reverse=False):
     """
     Stream pretraining text from parquet files, tokenize, yield training batches.
 
@@ -63,7 +63,7 @@ def tokenizing_distributed_data_loader_with_state(B, T, split, tokenizer_threads
     # Now emit batches of tokens.
     needed_tokens = B * T + 1 # +1 is because we also need the target at the last token
     # get the tokenizer and the bos token
-    tokenizer = get_tokenizer()
+    tokenizer = get_tokenizer(reverse=reverse)
     bos_token = tokenizer.get_bos_token_id()
     # scratch buffer holds the tokens for one iteration
     token_buffer = deque() # we stream tokens on the right and pop from the left
@@ -71,6 +71,8 @@ def tokenizing_distributed_data_loader_with_state(B, T, split, tokenizer_threads
         # Accumulate enough tokens for one iteration before yielding.
         while len(token_buffer) < needed_tokens:
             doc_batch, (pq_idx, rg_idx) = next(batches)
+            if reverse:
+                doc_batch = [doc[::-1] for doc in doc_batch]
             token_lists = tokenizer.encode(doc_batch, prepend=bos_token, num_threads=tokenizer_threads)
             for tokens in token_lists:
                 token_buffer.extend(tokens)

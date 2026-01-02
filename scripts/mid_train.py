@@ -10,9 +10,11 @@ torchrun --standalone --nproc_per_node=8 -m scripts.mid_train -- --device_batch_
 """
 
 from collections import deque
+import copy
 import os
 os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
 import time
+import sys
 import wandb
 import torch
 from contextlib import nullcontext
@@ -48,7 +50,10 @@ eval_every = 150 # -1 = disable
 eval_tokens = 20*524288
 total_batch_size = 524288
 dry_run = 0 # dry_run=1 is for experiments: we will log to wandb but we won't write checkpoints or report
+reverse = False # use reversed tokenizer/data (trained with --reverse)
 config_keys = [k for k,v in globals().items() if not k.startswith('_') and isinstance(v, (int, float, bool, str))]
+if "--reverse" in sys.argv:
+    sys.argv = ["--reverse=True" if arg == "--reverse" else arg for arg in sys.argv]
 exec(open(os.path.join('nanochat', 'configurator.py')).read()) # overrides from command line or config file
 user_config = {k: globals()[k] for k in config_keys} # possibly useful for logging
 # -----------------------------------------------------------------------------
@@ -66,7 +71,7 @@ use_dummy_wandb = run == "dummy" or not master_process
 wandb_run = DummyWandb() if use_dummy_wandb else wandb.init(project="nanochat-mid", name=run, config=user_config)
 
 # Load the model and tokenizer
-model, tokenizer, meta = load_model("base", device, phase="train", model_tag=model_tag, step=step)
+model, tokenizer, meta = load_model("base", device, phase="train", model_tag=model_tag, step=step, reverse=reverse)
 pretrain_batch_size = meta.get("device_batch_size", None)
 if pretrain_batch_size is not None and device_batch_size > pretrain_batch_size:
     print0(f"FOOTGUN WARNING: base model training used device_batch_size {pretrain_batch_size}, did you pass in a good --device_batch_size to this script?")
@@ -81,7 +86,7 @@ grad_accum_steps = total_batch_size // world_tokens_per_fwdbwd
 print0(f"Tokens / micro-batch / rank: {device_batch_size} x {max_seq_len} = {tokens_per_fwdbwd:,}")
 print0(f"Tokens / micro-batch: {world_tokens_per_fwdbwd:,}")
 print0(f"Total batch size {total_batch_size:,} => gradient accumulation steps: {grad_accum_steps}")
-token_bytes = get_token_bytes(device=device)
+token_bytes = get_token_bytes(device=device, reverse=reverse)
 
 # Initialize the Optimizer (Muon for Linear layers, AdamW for embedding and lm_head)
 optimizers = model.setup_optimizers(unembedding_lr=unembedding_lr, embedding_lr=embedding_lr, matrix_lr=matrix_lr, weight_decay=weight_decay)
@@ -114,6 +119,18 @@ val_dataset = TaskMixture([
 # these two global variables and update them from within the data generator.
 last_step = False # we will toggle this to True when we reach the end of the training dataset
 approx_progress = 0.0 # will go from 0 to 1 over the course of the epoch
+def reverse_conversation_text(conversation):
+    conversation = copy.deepcopy(conversation)
+    for message in conversation["messages"]:
+        content = message["content"]
+        if isinstance(content, str):
+            message["content"] = content[::-1]
+        elif isinstance(content, list):
+            for part in content:
+                if "text" in part:
+                    part["text"] = part["text"][::-1]
+    return conversation
+
 def mid_data_generator(split):
     global last_step, approx_progress
     assert split in {"train", "val"}, "split must be 'train' or 'val'"
@@ -130,6 +147,8 @@ def mid_data_generator(split):
         # Accumulate enough tokens for one iteration before yielding
         while len(token_buffer) < needed_tokens:
             conversation = dataset[cursor]
+            if reverse:
+                conversation = reverse_conversation_text(conversation)
             ids, _ = tokenizer.render_conversation(conversation)
             token_buffer.extend(ids)
             cursor += ddp_world_size

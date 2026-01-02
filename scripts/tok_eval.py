@@ -2,8 +2,17 @@
 Evaluate compression ratio of the tokenizer.
 """
 
+import argparse
+
 from nanochat.tokenizer import get_tokenizer, RustBPETokenizer
 from nanochat.dataset import parquets_iter_batched
+
+# -----------------------------------------------------------------------------
+# Parse command line arguments
+
+parser = argparse.ArgumentParser(description="Evaluate tokenizer compression ratio")
+parser.add_argument('--reverse', action='store_true', help='Use reversed tokenizer and reverse input text')
+args = parser.parse_args()
 
 # Random text I got from a random website this morning
 news_text = r"""
@@ -143,18 +152,25 @@ science_text = r"""
 Photosynthesis is a photochemical energy transduction process in which light-harvesting pigment–protein complexes within the thylakoid membranes of oxygenic phototrophs absorb photons and initiate charge separation at the reaction center, driving the linear electron transport chain from water to NADP⁺ via photosystem II, the cytochrome b₆f complex, and photosystem I, concomitantly generating a trans-thylakoid proton motive force utilized by chloroplastic ATP synthase. The light-dependent reactions produce ATP and NADPH, which fuel the Calvin–Benson–Bassham cycle in the stroma, wherein ribulose-1,5-bisphosphate is carboxylated by ribulose-1,5-bisphosphate carboxylase/oxygenase (RuBisCO) to form 3-phosphoglycerate, subsequently reduced and regenerated through a series of enzymatic steps, enabling net assimilation of CO₂ into triose phosphates and ultimately carbohydrates. This process is tightly regulated by photoprotective mechanisms, redox feedback, and metabolite flux, representing a central biochemical pathway coupling solar energy capture to the biosphere’s primary productivity.
 """.strip()
 
+def maybe_reverse_text(text):
+    return text[::-1] if args.reverse else text
+
 # The tokenizer was trained on data from earlier shards, so it has seen this data
 train_docs = next(parquets_iter_batched(split="train"))
+if args.reverse:
+    train_docs = [doc[::-1] for doc in train_docs]
 train_text = "\n".join(train_docs)
 val_docs = next(parquets_iter_batched(split="val"))
+if args.reverse:
+    val_docs = [doc[::-1] for doc in val_docs]
 val_text = "\n".join(val_docs)
 
 all_text = [
-    ("news", news_text),
-    ("korean", korean_text),
-    ("code", code_text),
-    ("math", math_text),
-    ("science", science_text),
+    ("news", maybe_reverse_text(news_text)),
+    ("korean", maybe_reverse_text(korean_text)),
+    ("code", maybe_reverse_text(code_text)),
+    ("math", maybe_reverse_text(math_text)),
+    ("science", maybe_reverse_text(science_text)),
     ("fwe-train", train_text),
 ]
 if val_text:
@@ -171,7 +187,7 @@ for tokenizer_name in ["gpt2", "gpt4", "ours"]:
     elif tokenizer_name == "gpt4":
         tokenizer = RustBPETokenizer.from_pretrained("cl100k_base") # gpt-4 base model tokenizer
     else:
-        tokenizer = get_tokenizer()
+        tokenizer = get_tokenizer(reverse=args.reverse)
 
     vocab_sizes[tokenizer_name] = tokenizer.get_vocab_size()
     tokenizer_results[tokenizer_name] = {}

@@ -72,6 +72,7 @@ parser.add_argument('-p', '--port', type=int, default=8000, help='Port to run th
 parser.add_argument('-d', '--dtype', type=str, default='bfloat16', choices=['float32', 'bfloat16'])
 parser.add_argument('--device-type', type=str, default='', choices=['cuda', 'cpu', 'mps'], help='Device type for evaluation: cuda|cpu|mps. empty => autodetect')
 parser.add_argument('--host', type=str, default='0.0.0.0', help='Host to bind the server to')
+parser.add_argument('--reverse', action='store_true', help='Use reversed tokenizer and reverse input/output text')
 args = parser.parse_args()
 
 # Configure logging for conversation traffic
@@ -123,7 +124,7 @@ class WorkerPool:
                 device = torch.device(device_type) # e.g. cpu|mps
                 print(f"Loading model on {device_type}...")
 
-            model, tokenizer, _ = load_model(source, device, phase="eval", model_tag=model_tag, step=step)
+            model, tokenizer, _ = load_model(source, device, phase="eval", model_tag=model_tag, step=step, reverse=args.reverse)
             engine = Engine(model, tokenizer)
             autocast_ctx = torch.amp.autocast(device_type=device_type, dtype=ptdtype) if device_type == "cuda" else nullcontext()
 
@@ -264,7 +265,8 @@ async def generate_stream(
     tokens,
     temperature=None,
     max_new_tokens=None,
-    top_k=None
+    top_k=None,
+    reverse=False,
 ) -> AsyncGenerator[str, None]:
     """Generate assistant response with streaming."""
     temperature = temperature if temperature is not None else args.temperature
@@ -296,17 +298,23 @@ async def generate_stream(
 
             # Append the token to sequence
             accumulated_tokens.append(token)
-            # Decode all accumulated tokens to get proper UTF-8 handling
-            # Note that decode is a quite efficient operation, basically table lookup and string concat
-            current_text = worker.tokenizer.decode(accumulated_tokens)
-            # Only emit text if it doesn't end with a replacement character
-            # This ensures we don't emit incomplete UTF-8 sequences
-            if not current_text.endswith('�'):
-                # Extract only the new text since last clean decode
-                new_text = current_text[len(last_clean_text):]
-                if new_text:  # Only yield if there's new content
-                    yield f"data: {json.dumps({'token': new_text, 'gpu': worker.gpu_id}, ensure_ascii=False)}\n\n"
-                    last_clean_text = current_text
+            if not reverse:
+                # Decode all accumulated tokens to get proper UTF-8 handling
+                # Note that decode is a quite efficient operation, basically table lookup and string concat
+                current_text = worker.tokenizer.decode(accumulated_tokens)
+                # Only emit text if it doesn't end with a replacement character
+                # This ensures we don't emit incomplete UTF-8 sequences
+                if not current_text.endswith('�'):
+                    # Extract only the new text since last clean decode
+                    new_text = current_text[len(last_clean_text):]
+                    if new_text:  # Only yield if there's new content
+                        yield f"data: {json.dumps({'token': new_text, 'gpu': worker.gpu_id}, ensure_ascii=False)}\n\n"
+                        last_clean_text = current_text
+
+    if reverse:
+        full_text = worker.tokenizer.decode(accumulated_tokens)[::-1]
+        if full_text:
+            yield f"data: {json.dumps({'token': full_text, 'gpu': worker.gpu_id}, ensure_ascii=False)}\n\n"
 
     yield f"data: {json.dumps({'done': True})}\n\n"
 
@@ -338,12 +346,14 @@ async def chat_completions(request: ChatRequest):
         conversation_tokens = [bos]
         for message in request.messages:
             if message.role == "user":
+                content = message.content[::-1] if args.reverse else message.content
                 conversation_tokens.append(user_start)
-                conversation_tokens.extend(worker.tokenizer.encode(message.content))
+                conversation_tokens.extend(worker.tokenizer.encode(content))
                 conversation_tokens.append(user_end)
             elif message.role == "assistant":
+                content = message.content[::-1] if args.reverse else message.content
                 conversation_tokens.append(assistant_start)
-                conversation_tokens.extend(worker.tokenizer.encode(message.content))
+                conversation_tokens.extend(worker.tokenizer.encode(content))
                 conversation_tokens.append(assistant_end)
 
         conversation_tokens.append(assistant_start)
@@ -357,7 +367,8 @@ async def chat_completions(request: ChatRequest):
                     conversation_tokens,
                     temperature=request.temperature,
                     max_new_tokens=request.max_tokens,
-                    top_k=request.top_k
+                    top_k=request.top_k,
+                    reverse=args.reverse,
                 ):
                     # Accumulate response for logging
                     chunk_data = json.loads(chunk.replace("data: ", "").strip())

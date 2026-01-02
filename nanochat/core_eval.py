@@ -130,13 +130,22 @@ def batch_sequences_schema(tokenizer, prompts):
     return tokens, start_indices, end_indices
 
 
-def batch_sequences_lm(tokenizer, prompts):
+def batch_sequences_lm(tokenizer, prompts, reverse=False):
     # In LM tasks, we have two prompts: without and with continuation
     tokens = tokenizer(prompts, prepend=tokenizer.get_bos_token_id())
     tokens_without, tokens_with = tokens
-    start_idx, end_idx = len(tokens_without), len(tokens_with)
-    assert start_idx < end_idx, "prompt without is supposed to be a prefix of prompt with"
-    assert tokens_without == tokens_with[:start_idx], "prompt without is supposed to be a prefix of prompt with"
+    if reverse:
+        # In reversed text, the "without" prompt is a suffix of the "with" prompt.
+        suffix_length = find_common_length(tokens, direction='right')
+        assert suffix_length == len(tokens_without), "prompt without is supposed to be a suffix of prompt with"
+        continuation_len = len(tokens_with) - suffix_length
+        # Skip the first continuation token because there's no prior token to condition on.
+        start_idx = 1
+        end_idx = max(start_idx, continuation_len)
+    else:
+        start_idx, end_idx = len(tokens_without), len(tokens_with)
+        assert start_idx < end_idx, "prompt without is supposed to be a prefix of prompt with"
+        assert tokens_without == tokens_with[:start_idx], "prompt without is supposed to be a prefix of prompt with"
     # we only need the with continuation prompt in the LM task, i.e. batch size of 1
     return [tokens_with], [start_idx], [end_idx]
 
@@ -165,7 +174,7 @@ def forward_model(model, input_ids):
 
 
 @torch.no_grad()
-def evaluate_example(idx, model, tokenizer, data, device, task_meta):
+def evaluate_example(idx, model, tokenizer, data, device, task_meta, reverse=False):
     """Evaluate a single example, return True if correct, False otherwise"""
     item = data[idx]
     task_type = task_meta['task_type']
@@ -183,13 +192,19 @@ def evaluate_example(idx, model, tokenizer, data, device, task_meta):
     # Render prompts and batch sequences based on task type
     if task_type == 'multiple_choice':
         prompts = render_prompts_mc(item, continuation_delimiter, fewshot_examples)
+        if reverse:
+            prompts = [p[::-1] for p in prompts]
         tokens, start_idxs, end_idxs = batch_sequences_mc(tokenizer, prompts)
     elif task_type == 'schema':
         prompts = render_prompts_schema(item, continuation_delimiter, fewshot_examples)
+        if reverse:
+            prompts = [p[::-1] for p in prompts]
         tokens, start_idxs, end_idxs = batch_sequences_schema(tokenizer, prompts)
     elif task_type == 'language_modeling':
         prompts = render_prompts_lm(item, continuation_delimiter, fewshot_examples)
-        tokens, start_idxs, end_idxs = batch_sequences_lm(tokenizer, prompts)
+        if reverse:
+            prompts = [p[::-1] for p in prompts]
+        tokens, start_idxs, end_idxs = batch_sequences_lm(tokenizer, prompts, reverse=reverse)
     else:
         raise ValueError(f"Unsupported task type: {task_type}")
 
@@ -241,7 +256,7 @@ def evaluate_example(idx, model, tokenizer, data, device, task_meta):
     return is_correct
 
 
-def evaluate_task(model, tokenizer, data, device, task_meta):
+def evaluate_task(model, tokenizer, data, device, task_meta, reverse=False):
     """
     This function is responsible for evaluating one task across many examples.
     It also handles dispatch to all processes if the script is run with torchrun.
@@ -251,7 +266,7 @@ def evaluate_task(model, tokenizer, data, device, task_meta):
     correct = torch.zeros(len(data), dtype=torch.float32, device=device)
     # stride the examples to each rank
     for idx in range(rank, len(data), world_size):
-        is_correct = evaluate_example(idx, model, tokenizer, data, device, task_meta)
+        is_correct = evaluate_example(idx, model, tokenizer, data, device, task_meta, reverse=reverse)
         correct[idx] = float(is_correct)
     # sync results across all the processes if running distributed
     if world_size > 1:

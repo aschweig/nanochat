@@ -17,10 +17,12 @@ parser = argparse.ArgumentParser(description='Train a BPE tokenizer')
 parser.add_argument('--max_chars', type=int, default=10_000_000_000, help='Maximum characters to train on (default: 10B)')
 parser.add_argument('--doc_cap', type=int, default=10_000, help='Maximum characters per document (default: 10,000)')
 parser.add_argument('--vocab_size', type=int, default=65536, help='Vocabulary size (default: 65536 = 2^16)')
+parser.add_argument('--reverse', action='store_true', help='Reverse word order in documents')
 args = parser.parse_args()
 print(f"max_chars: {args.max_chars:,}")
 print(f"doc_cap: {args.doc_cap:,}")
 print(f"vocab_size: {args.vocab_size:,}")
+print(f"reverse: {args.reverse}")
 
 # -----------------------------------------------------------------------------
 # Text iterator
@@ -37,6 +39,8 @@ def text_iterator():
             doc_text = doc
             if len(doc_text) > args.doc_cap:
                 doc_text = doc_text[:args.doc_cap]
+            if args.reverse:
+                doc_text = doc_text[::-1]
             nchars += len(doc_text)
             yield doc_text
             if nchars > args.max_chars:
@@ -54,7 +58,7 @@ print(f"Training time: {train_time:.2f}s")
 # -----------------------------------------------------------------------------
 # Save the tokenizer to disk
 base_dir = get_base_dir()
-tokenizer_dir = os.path.join(base_dir, "tokenizer")
+tokenizer_dir = os.path.join(base_dir, "tokenizer-reversed" if args.reverse else "tokenizer")
 tokenizer.save(tokenizer_dir)
 
 # -----------------------------------------------------------------------------
