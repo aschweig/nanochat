@@ -55,6 +55,7 @@ eval_every = 100
 eval_steps = 100
 eval_metrics_every = 200
 eval_metrics_max_problems = 1024
+reverse = False
 # now allow CLI to override the settings via the configurator lol
 config_keys = [k for k,v in globals().items() if not k.startswith('_') and isinstance(v, (int, float, bool, str))]
 exec(open(os.path.join('nanochat', 'configurator.py')).read()) # overrides from command line or config file
@@ -73,7 +74,7 @@ use_dummy_wandb = run == "dummy" or not master_process
 wandb_run = DummyWandb() if use_dummy_wandb else wandb.init(project="nanochat-sft", name=run, config=user_config, save_code=True)
 
 # Load the model and tokenizer
-model, tokenizer, meta = load_model(source, device, phase="train", model_tag=model_tag, step=step)
+model, tokenizer, meta = load_model(source, device, phase="train", model_tag=model_tag, step=step, reverse=reverse)
 orig_model = model # original, uncompiled model
 # model = torch.compile(model, dynamic=True) # doesn't work super well because of variable lengths of inputs
 engine = Engine(model, tokenizer) # will be used for inline model evaluation only
@@ -121,6 +122,11 @@ def sft_data_generator(dataset, batch_size):
     while True:
         for i in range(ddp_rank, len(dataset), ddp_world_size):
             doc = dataset[i]
+            if reverse:
+                doc = [
+                    {**msg, "content": msg["content"][::-1]}
+                    for msg in doc
+                ]
             ids, mask = tokenizer.render_conversation(doc)
             batch.append((ids, mask))
             if len(batch) == batch_size:
@@ -197,8 +203,8 @@ for step in range(num_iterations):
         metrics = {}
         with torch.no_grad(), autocast_ctx:
             # note that because these are inside no_grad, we can usually afford to at least ~2X the batch size
-            metrics["mmlu_acc"] = run_chat_eval("MMLU", model, tokenizer, engine, batch_size=device_batch_size*2, max_problems=eval_metrics_max_problems)
-            metrics["arc_easy_acc"] = run_chat_eval("ARC-Easy", model, tokenizer, engine, batch_size=device_batch_size*2, max_problems=eval_metrics_max_problems)
+            metrics["mmlu_acc"] = run_chat_eval("MMLU", model, tokenizer, engine, batch_size=device_batch_size*2, max_problems=eval_metrics_max_problems,reverse=reverse)
+            metrics["arc_easy_acc"] = run_chat_eval("ARC-Easy", model, tokenizer, engine, batch_size=device_batch_size*2, max_problems=eval_metrics_max_problems,reverse=reverse)
         metrics_str = ', '.join(f'{k}: {v:.6f}' for k, v in metrics.items())
         print0(f"Step {step:05d} | {metrics_str}")
         wandb_run.log({

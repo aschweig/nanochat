@@ -49,6 +49,7 @@ num_epochs = 1 # how many epochs of gsm8k to train on
 save_every = 60 # every how many steps to save the model
 eval_every = 60 # every how many steps to evaluate the model for val pass@k
 eval_examples = 400 # number of examples used for evaluating pass@k
+reverse = False;
 # now allow CLI to override the settings via the configurator lol
 config_keys = [k for k,v in globals().items() if not k.startswith('_') and isinstance(v, (int, float, bool, str))]
 exec(open(os.path.join('nanochat', 'configurator.py')).read()) # overrides from command line or config file
@@ -66,7 +67,7 @@ use_dummy_wandb = run == "dummy" or not master_process
 wandb_run = DummyWandb() if use_dummy_wandb else wandb.init(project="nanochat-rl", name=run, config=user_config)
 
 # Init model and tokenizer
-model, tokenizer, meta = load_model(source, device, phase="eval", model_tag=model_tag, step=step)
+model, tokenizer, meta = load_model(source, device, phase="eval", model_tag=model_tag, step=step, reverse=reverse)
 engine = Engine(model, tokenizer) # for sampling rollouts
 
 # -----------------------------------------------------------------------------
@@ -78,13 +79,19 @@ num_steps = (len(train_task) // examples_per_step) * num_epochs
 print0(f"Calculated number of steps: {num_steps}")
 
 @torch.no_grad()
-def get_batch():
+def get_batch(reverse=False):
     assistant_end = tokenizer.encode_special("<|assistant_end|>") # ok to use this token, it's only for padding and isn't used in the loss.
     rank_indices = range(ddp_rank, len(train_task), ddp_world_size) # each rank is responsible for different examples in the training data
     for example_idx in itertools.cycle(rank_indices):
 
         # First get the full conversation of both user and assistant messages
         conversation = train_task[example_idx]
+
+        if reverse:
+            conversation = [
+                {**msg, "content": msg["content"][::-1]}
+                for msg in conversation
+            ]
 
         # Tokenize the conversation, deleting the last Assistant message and priming the Assistant for a completion instead
         # (i.e. keep the <|assistant_start|>, but delete everything after it)
@@ -117,6 +124,8 @@ def get_batch():
             generated_tokens = sample_tokens[prefix_length:]
             # Decode the generated response
             generated_text = tokenizer.decode(generated_tokens)
+            if reverse:
+                generated_text = generated_text[::-1]
             # Calculate the reward
             reward = train_task.reward(conversation, generated_text)
             rewards.append(reward)
@@ -148,7 +157,8 @@ def run_gsm8k_eval(task, tokenizer, engine,
     num_samples=1,
     max_completion_tokens=256,
     temperature=0.0,
-    top_k=50
+    top_k=50,
+    reverse=False,
 ):
     """
     Evaluates GSM8K task and returns a list of records of evaluation outcomes.
@@ -159,6 +169,12 @@ def run_gsm8k_eval(task, tokenizer, engine,
     max_examples = min(max_examples, len(task)) if max_examples is not None else len(task)
     for idx in range(ddp_rank, max_examples, ddp_world_size):
         conversation = task[idx]
+
+        if reverse:
+            conversation = [
+                {**msg, "content": msg["content"][::-1]}
+                for msg in conversation
+            ]
         tokens = tokenizer.render_for_completion(conversation)
         prefix_length = len(tokens)
         # Generate k samples using batched generation inside the Engine
@@ -175,6 +191,8 @@ def run_gsm8k_eval(task, tokenizer, engine,
         for sample_tokens in generated_token_sequences:
             generated_tokens = sample_tokens[prefix_length:]
             generated_text = tokenizer.decode(generated_tokens)
+            if reverse:
+                generated_text = generated_text[::-1]
             is_correct = task.evaluate(conversation, generated_text)
             outcomes.append({
                 "is_correct": is_correct
@@ -215,7 +233,7 @@ examples_per_rank = examples_per_step // ddp_world_size # per GPU
 print0(f"Calculated examples per rank: {examples_per_rank}")
 
 # Kick off the training loop
-batch_iterator = get_batch()
+batch_iterator = get_batch(reverse)
 for step in range(num_steps):
 
     # Evaluate the model once in a while and log to wandb
@@ -223,7 +241,7 @@ for step in range(num_steps):
         model.eval()
         passk = torch.zeros(device_batch_size, device=device) # pass@k for k=1..device_batch_size
         with autocast_ctx:
-            records_iter = run_gsm8k_eval(val_task, tokenizer, engine, num_samples=device_batch_size, max_examples=eval_examples, temperature=1.0)
+            records_iter = run_gsm8k_eval(val_task, tokenizer, engine, num_samples=device_batch_size, max_examples=eval_examples, temperature=1.0, reverse=reverse)
             records = list(records_iter) # collect all records
         for k in range(1, device_batch_size + 1):
             passk[k - 1] = sum(any(o["is_correct"] for o in r["outcomes"][:k]) for r in records)
