@@ -89,8 +89,8 @@ NPROC_PER_NODE=8
 torchrun --standalone --nproc_per_node=$NPROC_PER_NODE -m scripts.base_train -- --depth=20 --run=$WANDB_RUN --reverse=True --model_tag=d20_trlm
 # evaluate the model on a larger chunk of train/val data and draw some samples
 torchrun --standalone --nproc_per_node=$NPROC_PER_NODE -m scripts.base_loss -- --reverse=True --model_tag=d20_trlm
-# evaluate the model on CORE tasks
-torchrun --standalone --nproc_per_node=$NPROC_PER_NODE -m scripts.base_eval -- --reverse=True --model_tag=d20_trlm
+# evaluate the model on CORE tasks (base_eval uses argparse, so --reverse without value)
+torchrun --standalone --nproc_per_node=$NPROC_PER_NODE -m scripts.base_eval -- --reverse --model-tag=d20_trlm
 
 # -----------------------------------------------------------------------------
 # Midtraining (teach the model conversation special tokens, tool use, multiple choice)
