@@ -197,7 +197,7 @@ Usage notes:
 - For `torchrun ... -m scripts.foo -- ...` commands, put `--reverse` after the `--` separator.
 - For plain `python -m scripts.foo ...`, pass `--reverse` directly.
 
-Scripts with `--reverse` support: `tok_train`, `tok_eval`, `base_train`, `base_loss`, `base_eval`, `mid_train`, `chat_eval`, `chat_cli`, `chat_web`.
+Scripts with `--reverse` support: `tok_train`, `tok_eval`, `base_train`, `base_loss`, `base_eval`, `mid_train`, `chat_sft`, `chat_rl`, `chat_eval`, `chat_cli`, `chat_web`.
 
 ## Contributing
 
