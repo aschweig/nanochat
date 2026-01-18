@@ -80,11 +80,12 @@ NPROC_PER_NODE=1
 # pretrain the d4 model
 # With 11GB VRAM (RTX 2080 Ti), we can use larger batch size and sequence length
 # Use model_tag to separate forward and reverse models
-python -m scripts.base_train --depth=4 --max_seq_len=512 --device_batch_size=4 --run=$WANDB_RUN --model_tag=d4-forward
+# Disable CORE evaluation during training (d4 can't handle long sequences) and save checkpoints every 500 steps
+python -m scripts.base_train --depth=4 --max_seq_len=512 --device_batch_size=4 --run=$WANDB_RUN --model_tag=d4 --core_metric_every=-1 --save_every=500
 # evaluate the model on a smaller chunk of train/val data
-python -m scripts.base_loss --device_batch_size=4
+python -m scripts.base_loss --device_batch_size=4 --model_tag=d4
 # evaluate the model on CORE tasks (with fewer examples for speed)
-python -m scripts.base_eval --max-per-task=100
+python -m scripts.base_eval --max-per-task=100 --model_tag=d4
 
 # -----------------------------------------------------------------------------
 # Midtraining
@@ -93,15 +94,17 @@ python -m scripts.base_eval --max-per-task=100
 curl -L -o $NANOCHAT_BASE_DIR/identity_conversations.jsonl https://karpathy-public.s3.us-west-2.amazonaws.com/identity_conversations.jsonl
 
 # run midtraining (note: no -- separator for configurator scripts)
-python -m scripts.mid_train --device_batch_size=4 --run=$WANDB_RUN
-python -m scripts.chat_eval -i mid -x 100
+# Reduced batch size from 4 to 1 due to longer sequence length (2048 vs 512)
+python -m scripts.mid_train --device_batch_size=1 --run=$WANDB_RUN --model_tag=d4
+python -m scripts.chat_eval -i mid -x 100 --model_tag=d4
 
 # -----------------------------------------------------------------------------
 # Supervised Finetuning
 
 # train sft (note: no -- separator for configurator scripts)
-python -m scripts.chat_sft --device_batch_size=4 --run=$WANDB_RUN
-python -m scripts.chat_eval -i sft -x 100
+# Reduced batch size from 4 to 1 due to longer sequence length (2048 vs 512)
+python -m scripts.chat_sft --device_batch_size=1 --run=$WANDB_RUN --model_tag=d4
+python -m scripts.chat_eval -i sft -x 100 --model_tag=d4
 
 # -----------------------------------------------------------------------------
 # Chat with the model

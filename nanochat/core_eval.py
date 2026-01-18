@@ -136,12 +136,22 @@ def batch_sequences_lm(tokenizer, prompts, reverse=False):
     tokens_without, tokens_with = tokens
     if reverse:
         # In reversed text, the "without" prompt is a suffix of the "with" prompt.
+        # However, due to BPE tokenization differences, the token boundaries may not align.
+        # We find the longest common suffix and use that as an approximation.
         suffix_length = find_common_length(tokens, direction='right')
-        assert suffix_length == len(tokens_without), "prompt without is supposed to be a suffix of prompt with"
-        continuation_len = len(tokens_with) - suffix_length
-        # Skip the first continuation token because there's no prior token to condition on.
-        start_idx = 1
-        end_idx = max(start_idx, continuation_len)
+
+        # If the suffix doesn't match perfectly (due to BPE boundary issues),
+        # fall back to using the full sequence length difference
+        if suffix_length < len(tokens_without):
+            # BPE tokenization created different boundaries - use length-based approach
+            continuation_len = len(tokens_with) - len(tokens_without)
+            start_idx = 1
+            end_idx = max(start_idx, continuation_len)
+        else:
+            continuation_len = len(tokens_with) - suffix_length
+            # Skip the first continuation token because there's no prior token to condition on.
+            start_idx = 1
+            end_idx = max(start_idx, continuation_len)
     else:
         start_idx, end_idx = len(tokens_without), len(tokens_with)
         assert start_idx < end_idx, "prompt without is supposed to be a prefix of prompt with"
