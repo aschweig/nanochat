@@ -25,6 +25,17 @@ uv sync --extra gpu
 # activate venv so that `python` uses the project's venv instead of system python
 source .venv/bin/activate
 
+# Create a sitecustomize.py to disable torch.compile (compatibility fix for some GPUs)
+SITE_PACKAGES=$(find .venv/lib -type d -name site-packages | head -1)
+cat > "$SITE_PACKAGES/sitecustomize.py" << 'EOF'
+import torch
+_original_compile = torch.compile
+def _no_compile(model, *args, **kwargs):
+    print("Note: torch.compile disabled for compatibility")
+    return model
+torch.compile = _no_compile
+EOF
+
 # -----------------------------------------------------------------------------
 # wandb setup
 if [ -z "$WANDB_RUN" ]; then
@@ -66,10 +77,12 @@ python -m scripts.tok_eval
 # Number of processes/GPUs to use (1 for consumer hardware)
 NPROC_PER_NODE=1
 
-# pretrain the d4 model with small batch size and shorter sequence
-python -m scripts.base_train --depth=4 --max_seq_len=256 --device_batch_size=1 --run=$WANDB_RUN
+# pretrain the d4 model
+# With 11GB VRAM (RTX 2080 Ti), we can use larger batch size and sequence length
+# Use model_tag to separate forward and reverse models
+python -m scripts.base_train --depth=4 --max_seq_len=512 --device_batch_size=4 --run=$WANDB_RUN --model_tag=d4-forward
 # evaluate the model on a smaller chunk of train/val data
-python -m scripts.base_loss --device_batch_size=1
+python -m scripts.base_loss --device_batch_size=4
 # evaluate the model on CORE tasks (with fewer examples for speed)
 python -m scripts.base_eval --max-per-task=100
 
@@ -79,16 +92,16 @@ python -m scripts.base_eval --max-per-task=100
 # download synthetic identity conversations
 curl -L -o $NANOCHAT_BASE_DIR/identity_conversations.jsonl https://karpathy-public.s3.us-west-2.amazonaws.com/identity_conversations.jsonl
 
-# run midtraining with smaller batch
-python -m scripts.mid_train -- --device_batch_size=1 --run=$WANDB_RUN
-python -m scripts.chat_eval -- -i mid -x 100
+# run midtraining (note: no -- separator for configurator scripts)
+python -m scripts.mid_train --device_batch_size=4 --run=$WANDB_RUN
+python -m scripts.chat_eval -i mid -x 100
 
 # -----------------------------------------------------------------------------
 # Supervised Finetuning
 
-# train sft with small batch
-python -m scripts.chat_sft -- --device_batch_size=1 --run=$WANDB_RUN
-python -m scripts.chat_eval -- -i sft -x 100
+# train sft (note: no -- separator for configurator scripts)
+python -m scripts.chat_sft --device_batch_size=4 --run=$WANDB_RUN
+python -m scripts.chat_eval -i sft -x 100
 
 # -----------------------------------------------------------------------------
 # Chat with the model
