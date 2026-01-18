@@ -189,7 +189,7 @@ python -m pytest tests/test_rustbpe.py -v -s
 └── uv.lock
 ```
 
-## Reverse tokenization (RTLM)
+## Reverse tokenization (TRLM)
 
 Many training/eval scripts accept `--reverse` to use the reversed tokenizer (from `tok_train --reverse`) and reverse input/output text so you can type normal "forward" prompts while training or evaluating a time-reversed LM.
 

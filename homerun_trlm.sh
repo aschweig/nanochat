@@ -1,13 +1,13 @@
 #!/bin/bash
 
-# This script is for local testing/debugging of RTLM (Reverse Token Language Model)
+# This script is for local testing/debugging of TRLM (Reverse Token Language Model)
 # on consumer hardware (e.g., single 8GB GPU).
 # It trains a small d4 model (~70M params) with reversed tokenization.
 
 # Example launch:
-# bash homerun_rtlm.sh
+# bash homerun_trlm.sh
 # Or with wandb:
-# WANDB_RUN=homerun_rtlm bash homerun_rtlm.sh
+# WANDB_RUN=homerun_trlm bash homerun_trlm.sh
 
 # Default intermediate artifacts directory is in ~/.cache/nanochat
 export OMP_NUM_THREADS=1
@@ -80,13 +80,13 @@ NPROC_PER_NODE=1
 
 # pretrain the d4 model with REVERSE mode
 # With 11GB VRAM (RTX 2080 Ti), we can use larger batch size and sequence length
-# Use model_tag to separate forward and reverse models (d4-rtlm uses reversed tokenizer)
+# Use model_tag to separate forward and reverse models (d4-trlm uses reversed tokenizer)
 # Disable CORE evaluation during training (d4 can't handle long sequences) and save checkpoints every 500 steps
-python -m scripts.base_train --depth=4 --max_seq_len=512 --device_batch_size=4 --run=$WANDB_RUN --reverse --model_tag=d4-rtlm --core_metric_every=-1 --save_every=500
+python -m scripts.base_train --depth=4 --max_seq_len=512 --device_batch_size=4 --run=$WANDB_RUN --reverse --model_tag=d4-trlm --core_metric_every=-1 --save_every=500
 # evaluate the model on a smaller chunk of train/val data
-python -m scripts.base_loss --device_batch_size=4 --reverse --model_tag=d4-rtlm
+python -m scripts.base_loss --device_batch_size=4 --reverse --model_tag=d4-trlm
 # evaluate the model on CORE tasks (with fewer examples for speed)
-python -m scripts.base_eval --max-per-task=100 --reverse --model_tag=d4-rtlm
+python -m scripts.base_eval --max-per-task=100 --reverse --model_tag=d4-trlm
 
 # -----------------------------------------------------------------------------
 # Midtraining
@@ -96,21 +96,21 @@ curl -L -o $NANOCHAT_BASE_DIR/identity_conversations.jsonl https://karpathy-publ
 
 # run midtraining with REVERSE mode (note: no -- separator for configurator scripts)
 # Reduced batch size from 4 to 1 due to longer sequence length (2048 vs 512)
-python -m scripts.mid_train --device_batch_size=1 --run=$WANDB_RUN --reverse --model_tag=d4-rtlm
-python -m scripts.chat_eval -i mid -x 100 --reverse --model_tag=d4-rtlm
+python -m scripts.mid_train --device_batch_size=1 --run=$WANDB_RUN --reverse --model_tag=d4-trlm
+python -m scripts.chat_eval -i mid -x 100 --reverse --model_tag=d4-trlm
 
 # -----------------------------------------------------------------------------
 # Supervised Finetuning
 
 # train sft with REVERSE mode (note: no -- separator for configurator scripts)
 # Reduced batch size from 4 to 1 due to longer sequence length (2048 vs 512)
-python -m scripts.chat_sft --device_batch_size=1 --run=$WANDB_RUN --reverse --model_tag=d4-rtlm
-python -m scripts.chat_eval -i sft -x 100 --reverse --model_tag=d4-rtlm
+python -m scripts.chat_sft --device_batch_size=1 --run=$WANDB_RUN --reverse --model_tag=d4-trlm
+python -m scripts.chat_eval -i sft -x 100 --reverse --model_tag=d4-trlm
 
 # -----------------------------------------------------------------------------
 # Chat with the model
 echo ""
-echo "RTLM Training complete! You can now chat with your reversed model:"
+echo "TRLM Training complete! You can now chat with your reversed model:"
 echo "  python -m scripts.chat_cli --reverse"
 echo "  python -m scripts.chat_web --reverse"
 

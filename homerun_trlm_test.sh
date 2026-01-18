@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Quick test script to validate all components of the RTLM pipeline
+# Quick test script to validate all components of the TRLM pipeline
 # Runs each stage for only 10 steps to verify everything works end-to-end
 
 # Default intermediate artifacts directory is in ~/.cache/nanochat
@@ -65,11 +65,11 @@ python -m scripts.tok_eval --reverse
 # Base model (pretraining) - 10 steps only
 
 # pretrain the d4 model with REVERSE mode for just 10 steps
-python -m scripts.base_train --depth=4 --max_seq_len=512 --device_batch_size=4 --run=$WANDB_RUN --reverse --model_tag=d4-rtlm --num_iterations=10
+python -m scripts.base_train --depth=4 --max_seq_len=512 --device_batch_size=4 --run=$WANDB_RUN --reverse --model_tag=d4-trlm --num_iterations=10
 # evaluate the model on a smaller chunk of train/val data
-python -m scripts.base_loss --device_batch_size=4 --reverse --model_tag=d4-rtlm
+python -m scripts.base_loss --device_batch_size=4 --reverse --model_tag=d4-trlm
 # evaluate the model on CORE tasks (with fewer examples for speed)
-python -m scripts.base_eval --max-per-task=20 --reverse --model_tag=d4-rtlm
+python -m scripts.base_eval --max-per-task=20 --reverse --model_tag=d4-trlm
 
 # -----------------------------------------------------------------------------
 # Midtraining - 10 steps only
@@ -91,12 +91,12 @@ python -m scripts.chat_eval -i sft -x 10 --reverse
 # -----------------------------------------------------------------------------
 # Test chat interface (just verify it loads)
 echo ""
-echo "RTLM Pipeline test complete! All components validated."
+echo "TRLM Pipeline test complete! All components validated."
 echo "To test the chat interface manually:"
 echo "  python -m scripts.chat_cli --reverse"
 echo ""
 echo "Note: This was a quick test run. The model quality will be very poor."
-echo "For actual training, use homerun_rtlm.sh (1-2 hours) or speedrun_rtlm.sh (4 hours on 8xH100)."
+echo "For actual training, use homerun_trlm.sh (1-2 hours) or speedrun_trlm.sh (4 hours on 8xH100)."
 
 # -----------------------------------------------------------------------------
 # Generate the full report
