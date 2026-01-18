@@ -97,7 +97,7 @@ curl -L -o $NANOCHAT_BASE_DIR/identity_conversations.jsonl https://karpathy-publ
 # run midtraining with REVERSE mode (note: no -- separator for configurator scripts)
 # Reduced batch size from 4 to 1 due to longer sequence length (2048 vs 512)
 python -m scripts.mid_train --device_batch_size=1 --run=$WANDB_RUN --reverse --model_tag=d4-trlm
-python -m scripts.chat_eval -i mid -x 100 --reverse --model_tag=d4-trlm
+python -m scripts.chat_eval -i mid -x 100 --reverse --model-tag=d4-trlm
 
 # -----------------------------------------------------------------------------
 # Supervised Finetuning
@@ -105,7 +105,7 @@ python -m scripts.chat_eval -i mid -x 100 --reverse --model_tag=d4-trlm
 # train sft with REVERSE mode (note: no -- separator for configurator scripts)
 # Reduced batch size from 4 to 1 due to longer sequence length (2048 vs 512)
 python -m scripts.chat_sft --device_batch_size=1 --run=$WANDB_RUN --reverse --model_tag=d4-trlm
-python -m scripts.chat_eval -i sft -x 100 --reverse --model_tag=d4-trlm
+python -m scripts.chat_eval -i sft -x 100 --reverse --model-tag=d4-trlm
 
 # -----------------------------------------------------------------------------
 # Chat with the model

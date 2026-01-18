@@ -269,10 +269,15 @@ while True:
         ]
         engine = Engine(orig_model, tokenizer) # use orig_model to avoid recompilation
         for prompt in prompts:
-            tokens = tokenizer(prompt, prepend="<|bos|>")
+            # If using reversed tokenizer, reverse the prompt before encoding
+            input_prompt = prompt[::-1] if reverse else prompt
+            tokens = tokenizer(input_prompt, prepend="<|bos|>")
             with autocast_ctx:
                 sample, _ = engine.generate_batch(tokens, num_samples=1, max_tokens=16, temperature=0)
-            print0(tokenizer.decode(sample[0]))
+            # If using reversed tokenizer, reverse the output back to forward text
+            output = tokenizer.decode(sample[0])
+            output = output[::-1] if reverse else output
+            print0(output)
         model.train()
 
     # save checkpoint: at the end of the run, or every save_every steps, except at the first step or the resume step
