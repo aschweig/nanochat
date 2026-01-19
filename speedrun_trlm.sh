@@ -107,7 +107,7 @@ torchrun --standalone --nproc_per_node=$NPROC_PER_NODE -m scripts.chat_eval -- -
 # Supervised Finetuning (domain adaptation to each sequence all by itself per row)
 
 # train sft and re-eval right away (should see a small bump)
-torchrun --standalone --nproc_per_node=$NPROC_PER_NODE -m scripts.chat_sft -- --run=$WANDB_RUN --reverse=True --model_tag=d20_trlm --device_batch_size=16
+torchrun --standalone --nproc_per_node=$NPROC_PER_NODE -m scripts.chat_sft -- --run=$WANDB_RUN --reverse=True --model_tag=d20_trlm --device_batch_size=8 --target_examples_per_step=256
 torchrun --standalone --nproc_per_node=$NPROC_PER_NODE -m scripts.chat_eval -- -i sft --reverse --model-tag=d20_trlm
 
 # chat with the model over CLI! Leave out the -p to chat interactively
