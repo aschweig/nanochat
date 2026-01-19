@@ -96,6 +96,19 @@ val_ds = SmolTalk(split="test") # general conversations, 24K rows (though we don
 # -----------------------------------------------------------------------------
 # DataLoader
 
+def reverse_conversation_text(conversation):
+    import copy
+    conversation = copy.deepcopy(conversation)
+    for message in conversation["messages"]:
+        content = message["content"]
+        if isinstance(content, str):
+            message["content"] = content[::-1]
+        elif isinstance(content, list):
+            for part in content:
+                if "text" in part:
+                    part["text"] = part["text"][::-1]
+    return conversation
+
 def sft_data_generator(dataset, batch_size):
     pad_token_id = tokenizer.encode_special("<|assistant_end|>") # use <|assistant_end|> as the pad token is ok, these positions are masked in the loss
     # prepares a list of tokenized conversations into a batch and yields
@@ -123,10 +136,7 @@ def sft_data_generator(dataset, batch_size):
         for i in range(ddp_rank, len(dataset), ddp_world_size):
             doc = dataset[i]
             if reverse:
-                doc = [
-                    {**msg, "content": msg["content"][::-1]}
-                    for msg in doc
-                ]
+                doc = reverse_conversation_text(doc)
             ids, mask = tokenizer.render_conversation(doc)
             batch.append((ids, mask))
             if len(batch) == batch_size:
