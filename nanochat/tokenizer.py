@@ -296,7 +296,12 @@ class RustBPETokenizer:
             conversation = copy.deepcopy(conversation) # avoid mutating the original
             messages = conversation["messages"]
             assert messages[1]["role"] == "user", "System message must be followed by a user message"
-            messages[1]["content"] = messages[0]["content"] + "\n\n" + messages[1]["content"]
+            # For reverse mode: text is already character-reversed, so swap concatenation order
+            # to ensure final output is "System\n\nUser" after reversing back
+            if reverse:
+                messages[1]["content"] = messages[1]["content"] + "\n\n" + messages[0]["content"]
+            else:
+                messages[1]["content"] = messages[0]["content"] + "\n\n" + messages[1]["content"]
             messages = messages[1:]
         else:
             messages = conversation["messages"]
