@@ -85,24 +85,23 @@ while True:
     # Encode the assistant response
     assistant_tokens = tokenizer.encode(assistant_response_reversed)
 
-    # With the updated tokenizer, training sequences are:
-    # [bos, assistant_end, assistant_tokens, assistant_start, user_end, user_tokens, user_start]
+    # Training sequences are:
+    # [bos, assistant_start, assistant_tokens, assistant_end, user_start, user_tokens, user_end]
     #
     # For inference, we provide the assistant part and generate the user part:
-    # Prompt: [bos, assistant_end] + assistant_tokens + [assistant_start, user_end] + conversation_suffix
-    # Generate: user_tokens until user_start
+    # Prompt: [bos, assistant_start] + assistant_tokens + [assistant_end, user_start] + conversation_suffix
+    # Generate: user_tokens until user_end
     #
-    # With causal attention looking left, when generating user tokens, the model can see
-    # the entire assistant response, achieving reversed causality.
+    # The model sees assistant content first, then generates user query.
 
     if conversation_suffix == [assistant_end]:
         # First turn: just the assistant response
-        prompt_tokens = [bos, assistant_end] + assistant_tokens + [assistant_start, user_end]
+        prompt_tokens = [bos, assistant_start] + assistant_tokens + [assistant_end, user_start]
     else:
-        # Multi-turn: append previous conversation (which is already in reversed order from last turn)
-        # conversation_suffix already contains: [user_start, prev_user_tokens, user_end, assistant_start, prev_asst_tokens, assistant_end]
-        # We want: [bos, assistant_end, new_asst_tokens, assistant_start, user_end] + [user_start, prev_user_tokens, user_end, assistant_start, prev_asst_tokens, assistant_end]
-        prompt_tokens = [bos, assistant_end] + assistant_tokens + [assistant_start, user_end] + conversation_suffix[:-1]  # Remove the trailing assistant_end from conversation_suffix
+        # Multi-turn: append previous conversation
+        # conversation_suffix contains: [user_end, assistant_start, prev_asst_tokens, assistant_end]
+        # We want: [bos, assistant_start, new_asst_tokens, assistant_end, user_start] + conversation_suffix
+        prompt_tokens = [bos, assistant_start] + assistant_tokens + [assistant_end, user_start] + conversation_suffix
 
     generate_kwargs = {
         "num_samples": args.num_samples,
@@ -120,15 +119,15 @@ while True:
         print(f"\nPredicted User queries (top {args.num_samples}):")
 
     with autocast_ctx:
-        # We generate until all samples see user_start token (the end of the user message in reversed sequence)
+        # We generate until all samples see user_end token (marks end of user message)
         completed = [False] * args.num_samples
         for token_column, token_masks in engine.generate(prompt_tokens, **generate_kwargs):
             # token_column contains one token per sample
             for i, token in enumerate(token_column):
                 if not completed[i]:
                     all_user_tokens[i].append(token)
-                    # Check if we've generated the user_start token (marks end of user message in reversed order)
-                    if token == user_start:
+                    # Check if we've generated the user_end token
+                    if token == user_end:
                         completed[i] = True
             # Stop if all samples are completed
             if all(completed):
@@ -137,8 +136,8 @@ while True:
     # Decode and reverse all user queries back to forward text
     user_queries = []
     for i, user_tokens in enumerate(all_user_tokens):
-        # Remove the user_start token (end marker in reversed sequence) for cleaner display
-        if user_tokens and user_tokens[-1] == user_start:
+        # Remove the user_end token for cleaner display
+        if user_tokens and user_tokens[-1] == user_end:
             user_tokens = user_tokens[:-1]
 
         user_query = tokenizer.decode(user_tokens)[::-1]  # Reverse back to English
@@ -150,12 +149,13 @@ while True:
             print(f"  {i+1}. {user_query}")
 
     # Update conversation_suffix for multi-turn (use first sample for continuation)
-    # In the reversed sequence, the new conversation becomes:
-    # [user_start, user_tokens, user_end, assistant_start, assistant_tokens, assistant_end]
+    # The conversation structure is:
+    # [assistant_start, asst_tokens, assistant_end, user_start, user_tokens, user_end]
+    # For next turn, we need: [user_end, assistant_start, prev_asst_tokens, assistant_end]
     first_user_tokens = all_user_tokens[0]
-    if first_user_tokens and first_user_tokens[-1] == user_start:
-        first_user_tokens = first_user_tokens[:-1]  # Remove user_start if present
-    conversation_suffix = [user_start] + first_user_tokens + [user_end, assistant_start] + assistant_tokens + [assistant_end]
+    if first_user_tokens and first_user_tokens[-1] == user_end:
+        first_user_tokens = first_user_tokens[:-1]  # Remove user_end if present
+    conversation_suffix = [user_end, assistant_start] + assistant_tokens + [assistant_end]
 
     # In prompt mode, only do one iteration
     if args.prompt:
