@@ -166,6 +166,7 @@ python -m pytest tests/test_rustbpe.py -v -s
 │   ├── base_loss.py                # Base model: calculate bits per byte, sample
 │   ├── base_train.py               # Base model: train
 │   ├── chat_cli.py                 # Chat model (SFT/Mid): talk to over CLI
+│   ├── chat_cli_rev.py             # TRLM Chat model (SFT/Mid): talk to over CLI
 │   ├── chat_eval.py                # Chat model (SFT/Mid): eval tasks
 │   ├── chat_rl.py                  # Chat model (SFT/Mid): reinforcement learning
 │   ├── chat_sft.py                 # Chat model: train SFT
@@ -204,22 +205,26 @@ The key difference between forward and TRLM models is the order of tokens in the
 
 **TRLM Model (reverse=True):**
 ```
-[<|bos|>, <|assistant_end|>, assistant_tokens..., <|assistant_start|>, <|user_end|>, user_tokens..., <|user_start|>]
+[<|bos|>, <|assistant_end|>, assistant_tokens_rev..., <|assistant_start|>, <|user_end|>, user_tokens_rev..., <|user_start|>]
 ```
 
 Key points:
 - **BOS always stays at position 0** for both forward and TRLM (consistent with base_train)
 - **Text is reversed at character level** before encoding (vocabulary trained on reversed text)
-- **Entire token sequence is reversed** (except BOS) - this reverses the order of message blocks
+- **Message block order is reversed** (assistant block before user block; assistant block is input)
 - **Tokens within each content block stay in their original order** (they encode already-reversed text)
+- **System prompts**: When present, concatenation order is swapped in reverse mode to preserve correct order after decoding
 
 With causal attention looking left, when the TRLM model generates user tokens, it can see the entire assistant response to the left.
 
 ### Usage notes:
 - For `torchrun ... -m scripts.foo -- ...` commands, put `--reverse` after the `--` separator.
 - For plain `python -m scripts.foo ...`, pass `--reverse` directly.
+- Use `chat_cli_rev.py` for TRLM inference (reversed causality mode): provide an assistant response and the model predicts what user query could lead to it.
 
 Scripts with `--reverse` support: `tok_train`, `tok_eval`, `base_train`, `base_loss`, `base_eval`, `mid_train`, `chat_sft`, `chat_rl`, `chat_eval`, `chat_cli`, `chat_web`.
+
+**TRLM-specific script:** `chat_cli_rev` - Interactive CLI for reversed causality inference.
 
 ## Contributing
 
