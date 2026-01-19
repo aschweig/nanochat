@@ -255,12 +255,14 @@ class RustBPETokenizer:
             pickle.dump(self.enc, f)
         print(f"Saved tokenizer encoding to {pickle_path}")
 
-    def render_conversation(self, conversation, max_tokens=2048):
+    def render_conversation(self, conversation, max_tokens=2048, reverse=False):
         """
         Tokenize a single Chat conversation (which we call a "doc" or "document" here).
         Returns:
         - ids: list[int] is a list of token ids of this rendered conversation
         - mask: list[int] of same length, mask = 1 for tokens that the Assistant is expected to train on.
+
+        If reverse=True, reverses the entire token sequence for TRLM (time-reversed language models).
         """
         # ids, masks that we will return and a helper function to help build them up.
         ids, mask = [], []
@@ -339,6 +341,19 @@ class RustBPETokenizer:
         # truncate to max_tokens tokens MAX (helps prevent OOMs)
         ids = ids[:max_tokens]
         mask = mask[:max_tokens]
+
+        # For TRLM: reverse the entire token sequence EXCEPT keep <|bos|> at position 0
+        # This matches the pattern in base_train where text is reversed before encoding,
+        # so BOS is always prepended at position 0
+        if reverse:
+            # Reverse everything after BOS
+            bos_token = ids[0]  # Save the BOS token
+            rest = ids[1:]      # Everything after BOS
+            rest_mask = mask[1:]
+            # Reverse the rest
+            ids = [bos_token] + rest[::-1]
+            mask = [mask[0]] + rest_mask[::-1]
+
         return ids, mask
 
     def visualize_tokenization(self, ids, mask, with_token_id=False):
@@ -356,7 +371,7 @@ class RustBPETokenizer:
                 tokens.append(f"{GRAY}({token_id}){RESET}")
         return '|'.join(tokens)
 
-    def render_for_completion(self, conversation):
+    def render_for_completion(self, conversation, reverse=False):
         """
         Used during Reinforcement Learning. In that setting, we want to
         render the conversation priming the Assistant for a completion.
@@ -369,7 +384,7 @@ class RustBPETokenizer:
         messages.pop() # remove the last message (of the Assistant) inplace
 
         # Now tokenize the conversation
-        ids, mask = self.render_conversation(conversation)
+        ids, mask = self.render_conversation(conversation, reverse=reverse)
 
         # Finally, to prime the Assistant for a completion, append the Assistant start token
         assistant_start = self.encode_special("<|assistant_start|>")

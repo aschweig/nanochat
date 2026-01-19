@@ -149,7 +149,7 @@ def mid_data_generator(split):
             conversation = dataset[cursor]
             if reverse:
                 conversation = reverse_conversation_text(conversation)
-            ids, _ = tokenizer.render_conversation(conversation)
+            ids, _ = tokenizer.render_conversation(conversation, reverse=reverse)
             token_buffer.extend(ids)
             cursor += ddp_world_size
             if cursor >= dataset_size:

@@ -137,7 +137,7 @@ def sft_data_generator(dataset, batch_size):
             doc = dataset[i]
             if reverse:
                 doc = reverse_conversation_text(doc)
-            ids, mask = tokenizer.render_conversation(doc)
+            ids, mask = tokenizer.render_conversation(doc, reverse=reverse)
             batch.append((ids, mask))
             if len(batch) == batch_size:
                 yield collate_and_yield(batch)
