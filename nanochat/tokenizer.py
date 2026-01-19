@@ -262,15 +262,32 @@ class RustBPETokenizer:
         - ids: list[int] is a list of token ids of this rendered conversation
         - mask: list[int] of same length, mask = 1 for tokens that the Assistant is expected to train on.
 
-        If reverse=True, reverses the entire token sequence for TRLM (time-reversed language models).
+        If reverse=True, reverses the MESSAGE BLOCK order for TRLM (time-reversed language models),
+        but keeps tokens within each content block in their original order.
         """
         # ids, masks that we will return and a helper function to help build them up.
         ids, mask = [], []
+        # For TRLM: track message blocks so we can reverse their order later
+        message_blocks = [] if reverse else None
+        current_block_ids = [] if reverse else None
+        current_block_mask = [] if reverse else None
+
         def add_tokens(token_ids, mask_val):
             if isinstance(token_ids, int):
                 token_ids = [token_ids]
-            ids.extend(token_ids)
-            mask.extend([mask_val] * len(token_ids))
+            if reverse:
+                current_block_ids.extend(token_ids)
+                current_block_mask.extend([mask_val] * len(token_ids))
+            else:
+                ids.extend(token_ids)
+                mask.extend([mask_val] * len(token_ids))
+
+        def end_message_block():
+            """Called at the end of each user or assistant message block"""
+            if reverse:
+                message_blocks.append((current_block_ids[:], current_block_mask[:]))
+                current_block_ids.clear()
+                current_block_mask.clear()
 
         # sometimes the first message is a system message...
         # => just merge it with the second (user) message
@@ -293,7 +310,11 @@ class RustBPETokenizer:
         output_start, output_end = self.encode_special("<|output_start|>"), self.encode_special("<|output_end|>")
 
         # now we can tokenize the conversation
-        add_tokens(bos, 0)
+        # BOS is ALWAYS at position 0, so handle it separately in reverse mode
+        if not reverse:
+            add_tokens(bos, 0)
+        # (in reverse mode, BOS will be added at the end when assembling blocks)
+
         for i, message in enumerate(messages):
 
             # some sanity checking here around assumptions, to prevent footguns
@@ -309,6 +330,8 @@ class RustBPETokenizer:
                 add_tokens(user_start, 0)
                 add_tokens(value_ids, 0)
                 add_tokens(user_end, 0)
+                if reverse:
+                    end_message_block()
             elif message["role"] == "assistant":
                 add_tokens(assistant_start, 0)
                 if isinstance(content, str):
@@ -337,22 +360,23 @@ class RustBPETokenizer:
                 else:
                     raise ValueError(f"Unknown content type: {type(content)}")
                 add_tokens(assistant_end, 1)
+                if reverse:
+                    end_message_block()
+
+        # For TRLM: reverse the MESSAGE BLOCK order (but not tokens within each block)
+        if reverse:
+            # Start with BOS
+            bos_token_id = self.get_bos_token_id()
+            ids = [bos_token_id]
+            mask = [0]
+            # Reverse the order of message blocks
+            for block_ids, block_mask in reversed(message_blocks):
+                ids.extend(block_ids)
+                mask.extend(block_mask)
 
         # truncate to max_tokens tokens MAX (helps prevent OOMs)
         ids = ids[:max_tokens]
         mask = mask[:max_tokens]
-
-        # For TRLM: reverse the entire token sequence EXCEPT keep <|bos|> at position 0
-        # This matches the pattern in base_train where text is reversed before encoding,
-        # so BOS is always prepended at position 0
-        if reverse:
-            # Reverse everything after BOS
-            bos_token = ids[0]  # Save the BOS token
-            rest = ids[1:]      # Everything after BOS
-            rest_mask = mask[1:]
-            # Reverse the rest
-            ids = [bos_token] + rest[::-1]
-            mask = [mask[0]] + rest_mask[::-1]
 
         return ids, mask
 

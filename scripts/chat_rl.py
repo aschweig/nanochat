@@ -95,7 +95,7 @@ def get_batch(reverse=False):
 
         # Tokenize the conversation, deleting the last Assistant message and priming the Assistant for a completion instead
         # (i.e. keep the <|assistant_start|>, but delete everything after it)
-        tokens = tokenizer.render_for_completion(conversation)
+        tokens = tokenizer.render_for_completion(conversation, reverse=reverse)
         prefix_length = len(tokens)
 
         # Generate num_samples samples using batched generation, use loop to avoid OOMs
@@ -175,7 +175,7 @@ def run_gsm8k_eval(task, tokenizer, engine,
                 {**msg, "content": msg["content"][::-1]}
                 for msg in conversation
             ]
-        tokens = tokenizer.render_for_completion(conversation)
+        tokens = tokenizer.render_for_completion(conversation, reverse=reverse)
         prefix_length = len(tokens)
         # Generate k samples using batched generation inside the Engine
         assert num_samples <= device_batch_size # usually this is true. we can add a loop if not...
