@@ -221,6 +221,7 @@ With causal attention looking left, when the TRLM model generates user tokens, i
 - For `torchrun ... -m scripts.foo -- ...` commands, put `--reverse` after the `--` separator.
 - For plain `python -m scripts.foo ...`, pass `--reverse` directly.
 - Use `chat_cli_rev.py` for TRLM inference (reversed causality mode): provide an assistant response and the model predicts what user query could lead to it.
+- The program `speedrun_trlm.sh` is used for TRLM training similar to `speedrun.sh`.
 
 Scripts with `--reverse` support: `tok_train`, `tok_eval`, `base_train`, `base_loss`, `base_eval`, `mid_train`, `chat_sft`, `chat_rl`, `chat_eval`, `chat_cli`, `chat_web`.
 
