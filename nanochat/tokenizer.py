@@ -363,16 +363,19 @@ class RustBPETokenizer:
                 if reverse:
                     end_message_block()
 
-        # For TRLM: reverse the MESSAGE BLOCK order (but not tokens within each block)
+        # For TRLM: reverse the ENTIRE token sequence (except keep BOS at position 0)
         if reverse:
-            # Start with BOS
+            # Keep BOS at position 0, reverse everything else
             bos_token_id = self.get_bos_token_id()
-            ids = [bos_token_id]
-            mask = [0]
-            # Reverse the order of message blocks
-            for block_ids, block_mask in reversed(message_blocks):
-                ids.extend(block_ids)
-                mask.extend(block_mask)
+            # Flatten all message blocks into a single sequence
+            all_ids = []
+            all_mask = []
+            for block_ids, block_mask in message_blocks:
+                all_ids.extend(block_ids)
+                all_mask.extend(block_mask)
+            # Reverse the entire sequence and prepend BOS
+            ids = [bos_token_id] + list(reversed(all_ids))
+            mask = [0] + list(reversed(all_mask))
 
         # truncate to max_tokens tokens MAX (helps prevent OOMs)
         ids = ids[:max_tokens]
