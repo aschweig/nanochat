@@ -193,7 +193,29 @@ python -m pytest tests/test_rustbpe.py -v -s
 
 Many training/eval scripts accept `--reverse` to use the reversed tokenizer (from `tok_train --reverse`) and reverse input/output text so you can type normal "forward" prompts while training or evaluating a time-reversed LM.
 
-Usage notes:
+### Token Sequence Structure
+
+The key difference between forward and TRLM models is the order of tokens in the sequence:
+
+**Forward Model (normal):**
+```
+[<|bos|>, <|user_start|>, user_tokens..., <|user_end|>, <|assistant_start|>, assistant_tokens..., <|assistant_end|>]
+```
+
+**TRLM Model (reverse=True):**
+```
+[<|bos|>, <|assistant_end|>, assistant_tokens..., <|assistant_start|>, <|user_end|>, user_tokens..., <|user_start|>]
+```
+
+Key points:
+- **BOS always stays at position 0** for both forward and TRLM (consistent with base_train)
+- **Text is reversed at character level** before encoding (vocabulary trained on reversed text)
+- **Entire token sequence is reversed** (except BOS) - this reverses the order of message blocks
+- **Tokens within each content block stay in their original order** (they encode already-reversed text)
+
+With causal attention looking left, when the TRLM model generates user tokens, it can see the entire assistant response to the left.
+
+### Usage notes:
 - For `torchrun ... -m scripts.foo -- ...` commands, put `--reverse` after the `--` separator.
 - For plain `python -m scripts.foo ...`, pass `--reverse` directly.
 
